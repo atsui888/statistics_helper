@@ -36,62 +36,102 @@ class ECDFHelper:
 
     The CDF returns the expected probability for observing a value less than or equal to a given value.
 
+    Usage
+    =====
+
+
+    methods - public
+    ----------------
+    .fit()
+    .plot_cdf()
+    .get_cumulative_probability(x)
+        .test_get_cumulative_probability(x)
+    .with_ci_get_x(confidence_level: float = 0.95):
+        . test_with_ci_get_x(cl=0.98):
+
+    methods - internal
+    ------------------
+
     """
 
     def __init__(self, df: pd.DataFrame):
         self._data = df
+        self._fitted = False
         self._ecdf = None
 
     def fit(self):
         self._ecdf = ECDF(self._data)
+        self._fitted = True
 
     def plot_cdf(self):
         plt.plot(self._ecdf.x, self._ecdf.y)
         plt.show()
 
-    def get_cumulative_probability(self, x):
-        return self._ecdf(x)
+    def get_cumulative_probability(self, x_val):
+        return self._ecdf(x_val)
 
     def with_ci_get_x(self, confidence_level: float = 0.95):
-        # todo: currently fn overshoots CL, run test_fn at cl=0.5 to see
+        if not self._fitted:
+            msg = "Please fit ECDF with data first, otherwise all values are None"
+            print(f"\n{msg}")
+            raise SystemError(msg)
+
+        print("test ci get x v2")
         x_min = self._data.min()
         x_max = self._data.max()
         x_range = np.arange(x_min, x_max)
+        x_range = np.append(x_range, x_max)
 
-        final_x = None
-        final_p_value = None
+        p_values = []
+        for idx, x in enumerate(x_range):
+            p_val = self.get_cumulative_probability(x)
+            p_values.append(p_val)
 
-        for x in x_range:
-            p_value = self._ecdf(x)
-            if p_value >= confidence_level:
-                # print(f"\nWe are {p_value * 100:,.2f}% confident that x will be less than {int(x)}. \n")
-                final_x = x
-                final_p_value = p_value
-                break
-
-        if final_p_value is None:
+            if p_val >= confidence_level:
+                prev_p_val = p_values[idx-1]
+                p_ratio = (confidence_level - prev_p_val) / (p_val - prev_p_val)
+                x_values_range = x_range[idx] - x_range[idx-1]
+                final_x = x_range[idx - 1] + (p_ratio * x_values_range)
+                return final_x, confidence_level
+        else:
+            # if x does not exist in x_range, .get_cumulative_probability() returns p_value of None
             final_x = x_max
             final_p_value = 1.0
+            return final_x, final_p_value
 
-        return final_x, final_p_value
 
-
-def test_ecdf_helper():
+def test_get_cumulative_probability(x, show_chart=False):
     df = pd.read_excel('DA-LSS.xlsx', sheet_name='THT', skiprows=8)
-
     cols = ['tht', 'training', 'unknown']
     df.columns = cols
     df.drop(columns='unknown', inplace=True)
-    df.head()
+    zz = ECDFHelper(df['tht'])
+    zz.fit()
+    if show_chart:
+        zz.plot_cdf()
+    if isinstance(x, list):
+        for i in x:
+            print(f"P(x<{i}): {zz.get_cumulative_probability(i):,.3f}")
+    else:
+        print(f"P(x<{x}): {zz.get_cumulative_probability(x):,.3f}")
+
+
+def test_with_ci_get_x(cl=0.98, show_chart=True):
+    df = pd.read_excel('DA-LSS.xlsx', sheet_name='THT', skiprows=8)
+    cols = ['tht', 'training', 'unknown']
+    df.columns = cols
+    df.drop(columns='unknown', inplace=True)
+    # df.head()
 
     zz = ECDFHelper(df['tht'])
     zz.fit()
-    zz.plot_cdf()
-    print(f"P(x<240): {zz.get_cumulative_probability(240):,.3f}")
-    print(f"P(x<661): {zz.get_cumulative_probability(661):,.3f}")
-    confidence_level = 0.98
-    x, p_value = zz.with_ci_get_x(confidence_level=confidence_level)
-    print(f"\nWe are {p_value * 100:,.2f}% confident that x will be less than {int(x)}. \n")
+    if show_chart:
+        zz.plot_cdf()
+    # print(f"P(x<240): {zz.get_cumulative_probability(240):,.3f}")
+    # print(f"P(x<661): {zz.get_cumulative_probability(661):,.3f}")
+    confidence_level = cl
+    x_val, p_value = zz.with_ci_get_x(confidence_level=confidence_level)
+    print(f"We are {p_value * 100:,.2f}% confident that x will be less than {x_val:,.2f}. \n")
 
 
 def mean_confidence_interval(data, confidence=0.95):
@@ -146,4 +186,6 @@ def test_mean_confidence_interval():
 if __name__ == "__main__":
     # test_mean_confidence_interval()
     # test_median_confidence_interval()
-    test_ecdf_helper()
+    X = [905, 906, 907, 908, 909, 910]
+    test_get_cumulative_probability(X, show_chart=False)
+    test_with_ci_get_x(cl=0.995, show_chart=False)
